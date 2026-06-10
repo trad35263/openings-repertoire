@@ -8,6 +8,9 @@ import chess.pgn
 from dotenv import load_dotenv
 import os
 
+# import Colours class
+from utils import Colours
+
 # Inputs class
 class Inputs:
 
