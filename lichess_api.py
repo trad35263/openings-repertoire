@@ -5,12 +5,15 @@
 import requests
 import chess
 import chess.pgn
+from dotenv import load_dotenv
+import os
 
 # Inputs class
 class Inputs:
 
     # Lichess API token
-    API_TOKEN = "lip_PCl668UQcgdYsvpWZU0j"
+    load_dotenv()
+    API_TOKEN = os.environ.get("MY_API_KEY")
 
     # input PGN text file
     filename = "root.txt"
