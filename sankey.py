@@ -14,8 +14,8 @@ from utils import Colours
 class Sankey:
     """Class for creating a sankey diagram."""
     # constant values
-    x_margin = 0.1
-    y_margin = 0.2
+    #x_margin = 0.1
+    y_margin = 1
     width = 0.5
     N = 100
 
@@ -40,6 +40,36 @@ class Sankey:
         # check links dictionary contains lists with the same length
         if not all(len(self.links[key]) == len(self.links["sources"]) for key in self.links if key != "sources"):
             raise ValueError("All lists in the link dictionary must have the same length.")
+            
+        # check if all sources and targets are given as integers OR strings
+        if all(isinstance(x, (int, str)) for x in self.links["sources"] + self.links["targets"]):
+
+            # loop for all sources
+            for i, string in enumerate(self.links["sources"]):
+
+                # check if source is given as a string
+                if isinstance(string, str):
+            
+                    # replace source with corresponding integer code
+                    self.links["sources"][i] = self.nodes["labels"].index(string)
+
+            # loop for all targets
+            for i, string in enumerate(self.links["targets"]):
+
+                # check if target is given as a string
+                if isinstance(string, str):
+
+                    # replace target with corresponding integer code
+                    self.links["targets"][i] = self.nodes["labels"].index(string)
+
+            # check if any integers given are out of bounds
+            if any(x > len(nodes["labels"]) - 1 for x in self.links["sources"] + self.links["targets"]):
+                raise ValueError("Integer code for sources/targets is out of bounds!")
+
+        # an unknown datatype was received
+        else:
+
+            raise ValueError("Unknown data type received!")
         
         # set default values for node characteristics
         N = len(self.nodes["labels"])
@@ -68,6 +98,9 @@ class Sankey:
 
         # get node outflow x-coordinate
         self.nodes["x_out"] = [x + self.width for x in self.nodes["x"]]
+
+        # loop for each root, starting with largest
+        pass
 
         # loop for each column of sankey values
         for x in sorted(set(self.nodes["x"])):
@@ -159,18 +192,20 @@ class Sankey:
                 linewidth = plt.rcParams["lines.linewidth"]
             )
             ax.add_patch(patch)
-            ax.text(
-                self.nodes["x"][i] + 0.5 * (self.nodes["x_out"][i] - self.nodes["x"][i]),
-                self.nodes["y"][i] + 0.5 * self.nodes["values"][i],
-                self.nodes["labels"][i],
-                ha = "center",
-                va = "center",
-                color = "k"
-            )
             ax.plot(
                 [self.nodes["x"][i], self.nodes["x_out"][i]],
                 [self.nodes["y"][i], self.nodes["y"][i] + self.nodes["values"][i]],
                 linestyle = "",
+                color = "k"
+            )
+
+            # overlay display text
+            ax.text(
+                self.nodes["x"][i] + 0.5 * (self.nodes["x_out"][i] - self.nodes["x"][i]),
+                self.nodes["y"][i] + 0.5 * self.nodes["values"][i],
+                self.nodes["display_names"][i],
+                ha = "center",
+                va = "center",
                 color = "k"
             )
 
@@ -204,9 +239,10 @@ def main():
     }
     links = {
         "sources": [0, 0, 1, 2, 2, 3, 3, 3, 4],
-        "targets": [1, 2, 3, 3, 4, 5, 6, 7, 7],
+        "targets": [1, 2, 3, 3, 4, 5, 6, 7, "C"],
         "values": [1, 2, 1, 1.5, 0.5, 0.6, 0.8, 1.1, 0.5]
     }
+    nodes["display_names"] = nodes["labels"]
     sankey = Sankey(nodes, links)
 
     print(sankey)

@@ -2,6 +2,7 @@
 # 5 June 2026
 
 # import modules
+import matplotlib.pyplot as plt
 import requests
 import chess
 import chess.pgn
@@ -11,18 +12,21 @@ import os
 # import Colours class
 from utils import Colours
 
+# import Sankey class
+from sankey import Sankey
+
 # Inputs class
 class Inputs:
 
     # Lichess API token
     load_dotenv()
-    API_TOKEN = os.environ.get("MY_API_KEY")
+    API_TOKEN = os.environ.get("API_TOKEN")
 
     # input PGN text file
     filename = "root.txt"
 
     # default parameters
-    frequency_threshold = 0.0005
+    frequency_threshold = 1e-3
 
     # default parameters for Lichess API requests
     url = "https://explorer.lichess.ovh/lichess"
@@ -72,10 +76,14 @@ def extend_line(line: list[str], player_colour: chess.Color):
         moves = [move for move in data["moves"] if (move["white"] + move["draws"] + move["black"]) > Inputs.move_threshold]
 
     # there are no responses that meet the threshold
-    if not moves:
+    """if not moves:
 
         # current line is a leaf, return it
-        return [line]
+        result = [{
+            "line": line,
+            "games": data["white"] + data["draws"] + data["black"]
+        }]
+        return result"""
 
     # create empty list to store extended lines
     result = []
@@ -83,27 +91,38 @@ def extend_line(line: list[str], player_colour: chess.Color):
     # loop for all possible responses
     for move in moves:
 
+        # append to result
+        result.extend([{
+            "line": line + [move["san"]],
+            "games": move["white"] + move["draws"] + move["black"]
+        }])
+
         # recursively call function to extend line
         new_line = line + [move["san"]]
-        result.extend(extend_line(new_line, player_colour))
+        result.extend(
+            extend_line(new_line, player_colour)
+        )
 
     return result
 
-def save_pgn(all_branches: list[list[str]], output_file: str = "repertoire.pgn", event_name: str = "Repertoire"):
+def save_pgn(branches: list[list[str]], output_file: str = "repertoire.pgn", event_name: str = "Repertoire"):
     """Saves the given lines as a PGN file containing the full repertoire."""
     # create game object
     game = chess.pgn.Game()
     game.headers["Event"] = event_name
 
     # loop for each branch in extended move tree
-    for branch in all_branches:
+    for branch in branches:
+
+        # separate line from branch
+        line = branch["line"]
 
         # create a board to track the position
         node = game
         board = chess.Board()
 
-        # loop for each move in the branch
-        for san in branch:
+        # loop for each move in the line
+        for san in line:
 
             # store move object
             move = board.parse_san(san)
@@ -128,7 +147,82 @@ def save_pgn(all_branches: list[list[str]], output_file: str = "repertoire.pgn",
         exporter = chess.pgn.FileExporter(f)
         game.accept(exporter)
 
-    print(f"PGN saved to {output_file}")
+    print(f"Repertoire saved as {Colours.GREEN}{output_file}{Colours.END}!")
+
+    return game
+
+def sankey_diagram(input, output):
+    """Creates a Sankey diagram of a tree of branches."""
+    # create empty nodes and links dictionaries
+    nodes = {
+        "labels": [],
+        "x": [],
+        "display_names": []
+    }
+    links = {
+        "sources": [],
+        "targets": [],
+        "values": []
+    }
+
+    # loop for all positions including input
+    for position in [input] + output:
+
+        # convert line to string and store
+        position["string"] = ",".join(position["line"])
+
+        # append to nodes dictionary
+        nodes["labels"].append(position["string"])
+        nodes["x"].append(len(position["line"]))
+        nodes["display_names"].append(position["line"][-1])
+
+    # loop for each output position
+    for position in output:
+
+        # append to links dictionary
+        links["sources"].append(",".join(position["line"][:-1]))
+        links["targets"].append(",".join(position["line"]))
+        links["values"].append(position["games"])
+
+    # create Sankey object
+    sankey = Sankey(nodes, links)
+
+    # re-retrieve nodes and links dictionaries
+    nodes = sankey.nodes
+    links = sankey.links
+
+    # loop for each node
+    for i in range(len(nodes["labels"])):
+
+        # calculate number of unaccounted for positions
+        diff = (
+            next(d for d in [input] + output if d["string"] == nodes["labels"][i])["games"]
+            - nodes["outflows"][i]
+        )
+
+        # check value is more than zero
+        if diff > 0:
+
+            # create leaf node
+            nodes["labels"].append(nodes["labels"][i] + "-")
+            nodes["x"].append(nodes["x"][i] + 1)
+            nodes["display_names"].append("")
+
+            # create link between nodes
+            links["sources"].append(nodes["labels"][i])
+            links["targets"].append(nodes["labels"][i] + "-")
+            links["values"].append(diff)
+
+    # trim nodes and links dictionaries to prevent array length mismatches
+    nodes = {key: value for key, value in nodes.items() if key in {"labels", "x", "display_names"}}
+    links = {key: value for key, value in links.items() if key in {"sources", "targets", "values"}}
+
+    # create NEW Sankey object
+    sankey = Sankey(nodes, links)
+
+    # create plot
+    fig, ax = plt.subplots()
+    sankey.plot(fig, ax)
 
 # main function
 def main():
@@ -141,20 +235,51 @@ def main():
     Inputs.move_threshold = int(Inputs.frequency_threshold * total_moves)
 
     # user feedback
-    print(f"Total games in database: {total_moves}. Setting pruning threshold to {Inputs.move_threshold} games!")
+    print(
+        f"Total games in database: {Colours.GREEN}{total_moves}{Colours.END}. "
+        f"Setting pruning threshold to {Colours.GREEN}{Inputs.move_threshold}{Colours.END} games!"
+    )
 
     # open input file
     with open(Inputs.filename) as f:
         game = chess.pgn.read_game(f)
 
-    # create empty list to store branches of extended move tree
-    branches = []
+    # create empty lists to store inputs and outputs to move tree
+    inputs = []
+    outputs = []
 
     # loop for unique line in the input tree
     for i, line in enumerate(walk_lines(game)):
 
+        # build board from current line
+        board = chess.Board()
+        for move in line:
+            board.push_san(move)
+
+        # fetch lichess API for current position
+        params = {**Inputs.params_base, "play": ",".join(m.uci() for m in board.move_stack)}
+        response = requests.get(Inputs.url, params = params, headers = Inputs.headers)
+        response.raise_for_status()
+        data = response.json()
+
+        # store as input
+        inputs.append({"line": line, "games": data["white"] + data["draws"] + data["black"]})
+
         # extend lines
-        branches.extend(extend_line(line, chess.WHITE))
+        branches = extend_line(line, chess.WHITE)
+        outputs.extend(branches)
+
+        # create sankey diagram
+        sankey_diagram(inputs[-1], branches)
+
+    # count games in input
+    input_games = sum([branch["games"] for branch in inputs])
+    output_games = sum([branch["games"] for branch in branches])
+    percent = 100 * output_games / input_games
+    print(
+        f"Repertoire covers {Colours.GREEN}{output_games}{Colours.END} of "
+        f"{Colours.GREEN}{input_games} ({percent:.4g}%){Colours.END} games in the input file."
+    )
 
     # save new repertoire as pgn file
     save_pgn(branches, "repertoire.pgn")
@@ -162,5 +287,6 @@ def main():
 # upon script execution
 if __name__ == "__main__":
 
-    # run main
+    # run main and show all plots
     main()
+    plt.show()
