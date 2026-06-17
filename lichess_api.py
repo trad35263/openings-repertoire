@@ -6,8 +6,11 @@ import matplotlib.pyplot as plt
 import requests
 import chess
 import chess.pgn
+
+# system modules
 from dotenv import load_dotenv
 import os
+import sys
 
 # import Colours class
 from utils import Colours
@@ -26,7 +29,7 @@ class Inputs:
     filename = "root.txt"
 
     # default parameters
-    frequency_threshold = 1e-3
+    frequency_threshold = 1e-4
 
     # default parameters for Lichess API requests
     url = "https://explorer.lichess.ovh/lichess"
@@ -105,7 +108,7 @@ def extend_line(line: list[str], player_colour: chess.Color):
 
     return result
 
-def save_pgn(branches: list[list[str]], output_file: str = "repertoire.pgn", event_name: str = "Repertoire"):
+def save_pgn(branches: list[list[str]], event_name: str = "Repertoire"):
     """Saves the given lines as a PGN file containing the full repertoire."""
     # create game object
     game = chess.pgn.Game()
@@ -143,11 +146,15 @@ def save_pgn(branches: list[list[str]], output_file: str = "repertoire.pgn", eve
             # make move and update board position
             board.push(move)
 
-    with open(output_file, "w") as f:
+    # construct output filename
+    output_filename = Inputs.filename.replace(".txt", "_repertoire.pgn")
+
+    # save file as .pgn
+    with open(output_filename, "w") as f:
         exporter = chess.pgn.FileExporter(f)
         game.accept(exporter)
 
-    print(f"Repertoire saved as {Colours.GREEN}{output_file}{Colours.END}!")
+    print(f"Repertoire saved as {Colours.GREEN}{output_filename}{Colours.END}!")
 
     return game
 
@@ -270,7 +277,7 @@ def main():
         outputs.extend(branches)
 
         # create sankey diagram
-        sankey_diagram(inputs[-1], branches)
+        #sankey_diagram(inputs[-1], branches)
 
     # count games in input
     input_games = sum([branch["games"] for branch in inputs])
@@ -282,10 +289,16 @@ def main():
     )
 
     # save new repertoire as pgn file
-    save_pgn(branches, "repertoire.pgn")
+    save_pgn(outputs)
 
 # upon script execution
 if __name__ == "__main__":
+
+    # user has given an input file
+    if len(sys.argv) > 1:
+
+        # take user argument as input filename
+        Inputs.filename = sys.argv[1]
 
     # run main and show all plots
     main()
