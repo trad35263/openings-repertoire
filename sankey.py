@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 from scipy.interpolate import make_interp_spline
 from itertools import permutations, product
+from time import perf_counter as timer
 
 # import Colours class
 from utils import Colours
@@ -21,7 +22,7 @@ class Inputs:
 class Sankey:
     """Class for creating a sankey diagram."""
     # constant values
-    y_margin = 1
+    y_margin = 0.1
     width = 0.5
     N = 100
 
@@ -34,11 +35,19 @@ class Sankey:
         # check for invalid inputs
         self.check_for_errors()
 
+        # start timer and print feedback message
+        t1 = timer()
+        print(f"{Colours.CYAN}Creating Sankey diagram...{Colours.END}")
+
         # populate dictionaries with derived values
         self.fill_dictionaries()
 
         # construct sankey diagram
         self.build_chart()
+
+        # end timer and print feedback message
+        t2 = timer()
+        print(f"Diagram constructed in {Colours.GREEN}{t2 - t1:.4g}{Colours.END} s!")
 
     def __str__(self):
         """Returns a string representation of the Sankey class."""
@@ -99,6 +108,9 @@ class Sankey:
             in zip(self.nodes["inflows"], self.nodes["outflows"])
         ]
 
+        # set y-margin size
+        self.y_margin = self.y_margin * max(self.nodes["values"])
+
         # get node outflow x-coordinate
         self.nodes["x_out"] = [x + self.width for x in self.nodes["x"]]
 
@@ -146,6 +158,15 @@ class Sankey:
 
             # increment column id
             column_id += 1
+
+        # check if nodes dictionary has list of colours
+        if "colours" not in self.nodes:
+
+            # initialise empty list of colours
+            self.nodes["colours"] = [None] * len(self.nodes["labels"])
+
+        # replace "" inputs with None
+        self.nodes["colours"] = [None if x == "" else x for x in self.nodes["colours"]]
 
     def check_for_errors(self):
         """Checks for various forms of invalid input and provides user feedback."""
@@ -232,7 +253,7 @@ class Sankey:
             self.columns.append(Column(
                 x = min([self.nodes["x"][i] for i in nodes]),
                 width = max([self.nodes["x"][i] for i in nodes]) - min([self.nodes["x"][i] for i in nodes]) + self.width,
-                min_height = sum([self.nodes["values"][i] for i in nodes])
+                min_height = sum([self.nodes["values"][i] + self.y_margin for i in nodes]) - self.y_margin
             ))
 
             # get all groups in column
@@ -251,7 +272,7 @@ class Sankey:
                 self.columns[-1].groups.append(Group(
                     x = min([self.nodes["x"][i] for i in nodes]),
                     width = max([self.nodes["x"][i] for i in nodes]) - min([self.nodes["x"][i] for i in nodes]) + self.width,
-                    min_height = sum([self.nodes["values"][i] for i in nodes])
+                    min_height = sum([self.nodes["values"][i] + self.y_margin for i in nodes]) - self.y_margin
                 ))
 
                 # loop for each node in the group
@@ -292,7 +313,7 @@ class Sankey:
         for layout in product(*permutations):
 
             # draw layout and store number of crossings
-            crossings, weighted_sum = self.draw_layout(layout)
+            crossings, weighted_sum = self.draw_layout(layout, min_crossings)
 
             # check if number of crossings is reduced
             if crossings < min_crossings:
@@ -314,7 +335,7 @@ class Sankey:
                     tiebreaker = weighted_sum
 
         # redraw sankey diagram with best layout
-        self.draw_layout(best_layout)
+        self.draw_layout(best_layout, np.inf)
 
     def assign_groups(self, root_index):
         """Recurses to assign each child of a given node to a group."""
@@ -337,6 +358,12 @@ class Sankey:
                     # set group
                     self.nodes["groups"][index] = self.group_id
 
+                    # node does not yet have a colour
+                    if self.nodes["colours"][index] == None:
+
+                        # set colour according to group ID
+                        self.nodes["colours"][index] = f"C{self.group_id}"
+
             # increment counter
             self.group_id += 1
 
@@ -346,7 +373,7 @@ class Sankey:
             # assign recursively to groups
             self.assign_groups(child)
 
-    def draw_layout(self, layout):
+    def draw_layout(self, layout, min_crossings):
         """Draws the layout of nodes and links given a specific ordering of groups and nodes."""
         # loop for each column
         for column, group_nodes in zip(self.columns, layout):
@@ -412,6 +439,11 @@ class Sankey:
 
                             # increment number of crossings
                             crossings += 1
+
+                            # check if crossings is already too high
+                            if crossings > min_crossings:
+
+                                return crossings, None
 
                         # update y-value to check crossings against
                         y_out = max(y_out, self.nodes[target_index].y_in)
@@ -542,9 +574,6 @@ class Node:
             # store attribute
             setattr(self, key, value)
 
-        # store colour
-        self.colours = "C0"
-
     def __str__(self):
         """Returns a string representation of the class instance."""
         # initialise empty string and loop for all class instance attributes
@@ -622,19 +651,26 @@ class Column(Container):
 def main():
 
     # create sankey chart
-    nodes = {
-        "labels": ["hi", "hello", "hey", "alright", "yo", "A", "B", "C", "sup"],
+    """nodes = {
+        "labels": ["hi", "hello", "hey", "alright", "yo", "A", "B", "C", "D"],
         "x": [0, 0.8, 1, 2, 2, 3, 3, 3, 0]
     }
     links = {
-        "sources": [0, 0, 1, 2, 2, 3, 3, 3, 4, "sup"],
+        "sources": [0, 0, 1, 2, 2, 3, 3, 3, 4, "D"],
         "targets": [1, 2, 3, 3, 4, 5, 6, 7, "C", "hello"],
         "values": [1, 2, 2, 1.5, 0.5, 0.6, 1.8, 1.1, 0.5, 1]
+    }"""
+    nodes = {
+        "labels": ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"],
+        "x":      [0,   0.9,   1,   1,   1, 1.8,   2, 2.2, 2.9, 3.1,   4,   4],
     }
     nodes["display_names"] = nodes["labels"]
+    links = {
+        "sources": ["A", "A", "A", "A", "B", "B", "C", "C", "D", "D", "E", "F", "F", "G", "H", "I", "I", "J", "J"],
+        "targets": ["B", "C", "D", "E", "F", "G", "F", "H", "G", "H", "F", "I", "J", "I", "I", "K", "L", "K", "L"],
+        "values":  [  1,   2,   2,   1, 0.6, 0.4, 1.5, 0.5, 1.2, 0.8,   1, 1.2, 1.9, 1.6, 1.3,   1, 3.1, 1.6, 0.3]
+    }
     sankey = Sankey(nodes, links)
-
-    #print(sankey)
     
     # create plot
     fig, ax = plt.subplots()
